@@ -100,7 +100,7 @@ module.exports = setup = ({baseDirectory, modulesDirectory, reload}) ->
         readAndCompileTemplates baseDirectory,  '*.mustache', basenameWithoutExtension, cb
       moduleTemplates: (cb) =>
         return cb(noErr, {}) unless modulesDirectory?
-        readAndCompileTemplates modulesDirectory,  '**/*.mustache', modulePrefixedBasenameWithoutExtension, cb
+        readAndCompileTemplates modulesDirectory,  '**/*.mustache', modulePrefixedBasenameWithoutExtension(modulesDirectory), cb
     }, (err, results) =>
       return cb(err) if err?
       compiledTemplates = {}
@@ -151,9 +151,14 @@ noErr = null
 basenameWithoutExtension = (fileName) ->
   fileName.match(/// .+ \/ (.+) \. .+ \.mustache $ ///)[1]
 
-modulePrefixedBasenameWithoutExtension = (fileName) ->
-  [moduleName, templateName] = fileName.match(/// .+ \/ (.+) \/ (.+) \. .+ \.mustache $ ///)[1..2]
-  if templateName is 'main' then moduleName else moduleName + '_' + templateName
+regexpEscape = (s) -> s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+
+modulePrefixedBasenameWithoutExtension = (modulesDirectory) ->
+  (fileName) ->
+    dir = modulesDirectory.replace /\/$/, ''
+    pattern = regexpEscape(dir) + '\\/(.+)\\/(.+)\\..+\\.mustache$'
+    [moduleName, templateName] = fileName.match(pattern)[1..2]
+    if templateName is 'main' then moduleName else moduleName + '_' + templateName
 
 
 # Tests
@@ -168,8 +173,12 @@ if process.argv[1] is __filename
 
   ## Unit tests
   assert.equal "foo", basenameWithoutExtension('/tmp/foo.html.mustache')
-  assert.equal "baz", modulePrefixedBasenameWithoutExtension('/tmp/modules/baz/main.html.mustache')
-  assert.equal "baz_qux", modulePrefixedBasenameWithoutExtension('/tmp/modules/baz/qux.html.mustache')
+  assert.equal "baz", modulePrefixedBasenameWithoutExtension('/tmp/modules')('/tmp/modules/baz/main.html.mustache')
+  assert.equal "baz/nested", modulePrefixedBasenameWithoutExtension('/tmp/modules')('/tmp/modules/baz/nested/main.html.mustache')
+  assert.equal "baz/nested/a/b/c", modulePrefixedBasenameWithoutExtension('/tmp/modules')('/tmp/modules/baz/nested/a/b/c/main.html.mustache')
+  assert.equal "baz/nested/a/b/c", modulePrefixedBasenameWithoutExtension('/tmp/modules/')('/tmp/modules/baz/nested/a/b/c/main.html.mustache')
+  assert.equal "baz_qux", modulePrefixedBasenameWithoutExtension('/tmp/modules')('/tmp/modules/baz/qux.html.mustache')
+  assert.equal "baz/nested/abc_qux", modulePrefixedBasenameWithoutExtension('/tmp/modules')('/tmp/modules/baz/nested/abc/qux.html.mustache')
 
   ## Integration tests
   fse  = require 'fs-extra'
