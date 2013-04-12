@@ -8,8 +8,11 @@ all: build
 
 build: $(LIB)
 
+compile: lib
+	$(COFFEE) --js <src/bulk_hogan.coffee >lib/bulk_hogan.js
+
 lib:
-	mkdir lib
+	@mkdir lib
 
 lib/%.js: src/%.coffee lib
 	dirname "$@" | xargs mkdir -p
