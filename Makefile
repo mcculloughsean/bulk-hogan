@@ -19,8 +19,8 @@ clean :
 	rm -rf lib
 	rm -rf node_modules
 
-test:
-	${COFFEE} src/bulk_hogan.coffee
+test : build
+	node lib/bulk_hogan.js
 # ---
 
 tag:
