@@ -52,71 +52,72 @@ hogan = require 'hogan.js'
 async = require 'async'
 glob  = require 'glob'
 
-module.exports = templates = {}
+module.exports = setup = ({baseDirectory, modulesDirectory, reload}) ->
 
-templates.source = (name, cb) ->
-  @load (err, compiledTemplates, sourceTemplates) ->
-    return cb(err) if err?
-    return cb noErr, sourceTemplates if name is '*'
-    sourceTemplate = sourceTemplates[name]
-    return cb(new Error "No template named: #{name}") unless sourceTemplate?
-    cb noErr, sourceTemplate
+  # Where to look for template files
+  baseDirectory ?= path.join __dirname, 'templates'
+  modulesDirectory ?= path.join __dirname, 'modules'
 
+  # Memory location used to store the uncompiled templates
+  sourceCache = null
 
-templates.render = (name, view, cb) ->
-  @load (err, compiledTemplates, sourceTemplates) ->
-    return cb(err) if err?
-    compiledTemplate = compiledTemplates[name]
-    return cb(new Error "No template named: #{name}") unless compiledTemplate?
-    try
-      html = compiledTemplate.render view, compiledTemplates
-      cb noErr, html
-    catch err
-      cb err
+  # Memory location used to store the compiled templates
+  compiledCache = null
 
-templates.renderSync = (name, view) ->
-  throw new Error 'Template files have not been loaded' unless @compiledCache?
-  compiledTemplate = @compiledCache[name]
-  throw new Error "No template named: #{name}" unless compiledTemplate?
-  compiledTemplate.render view, @compiledCache
+  # When `reload` is true, *all* templates are re-read from disk then
+  # re-compiled every time render is called. You only ever want this behavior
+  # during development. And even then, it's an optimization over just restarting
+  # the entire server process.
+  reload ?= process.env.NODE_ENV is 'development'
 
-templates.load = (cb) ->
-  return cb(noErr, @compiledCache, @sourceCache) if @compiledCache?
-  async.parallel
-    templates: (cb) =>
-      readAndCompileTemplates @dir,  '*.mustache', basenameWithoutExtension, cb
-    moduleTemplates: (cb) =>
-      return cb(noErr, {}) unless @modulesDir?
-      readAndCompileTemplates @modulesDir,  '**/*.mustache', modulePrefixedBasenameWithoutExtension, cb
-  , (err, results) =>
-    return cb(err) if err?
-    compiledTemplates = {}
-    sourceTemplates = {}
+  ## Interface Functions
 
-    compiledTemplates[k] = v for k,v of results.templates.compiledTemplates
-    compiledTemplates[k] = v for k,v of results.moduleTemplates.compiledTemplates
-    sourceTemplates[k] = v for k,v of results.templates.sourceTemplates
-    sourceTemplates[k] = v for k,v of results.moduleTemplates.sourceTemplates
+  # Return the source of a template
+  source = (name, cb) ->
+    load (err, compiledTemplates, sourceTemplates) ->
+      return cb(err) if err?
+      return cb noErr, sourceTemplates if name is '*'
+      sourceTemplate = sourceTemplates[name]
+      return cb(new Error "No template named: #{name}") unless sourceTemplate?
+      cb noErr, sourceTemplate
 
-    @compiledCache = compiledTemplates unless @reload
-    @sourceCache = sourceTemplates unless @reload
+  # Render a mustache template
+  render = (name, view, cb) ->
+    load (err, compiledTemplates, sourceTemplates) ->
+      return cb(err) if err?
+      compiledTemplate = compiledTemplates[name]
+      return cb(new Error "No template named: #{name}") unless compiledTemplate?
+      try
+        html = compiledTemplate.render view, compiledTemplates
+        cb noErr, html
+      catch err
+        cb err
 
-    cb noErr, compiledTemplates, sourceTemplates
+  load = (cb) ->
+    return cb(noErr, compiledCache, sourceCache) if compiledCache?
+    async.parallel {
+      templates: (cb) =>
+        readAndCompileTemplates baseDirectory,  '*.mustache', basenameWithoutExtension, cb
+      moduleTemplates: (cb) =>
+        return cb(noErr, {}) unless modulesDirectory?
+        readAndCompileTemplates modulesDirectory,  '**/*.mustache', modulePrefixedBasenameWithoutExtension, cb
+    }, (err, results) =>
+      return cb(err) if err?
+      compiledTemplates = {}
+      sourceTemplates = {}
 
-# Where to look for template files
-templates.dir = __dirname + '/templates'
+      compiledTemplates[k] = v for k,v of results.templates.compiledTemplates
+      compiledTemplates[k] = v for k,v of results.moduleTemplates.compiledTemplates
+      sourceTemplates[k] = v for k,v of results.templates.sourceTemplates
+      sourceTemplates[k] = v for k,v of results.moduleTemplates.sourceTemplates
 
-# Memory location used to store the uncompiled templates
-templates.sourceCache = null
+      compiledCache = compiledTemplates unless reload
+      sourceCache = sourceTemplates unless reload
 
-# Memory location used to store the compiled templates
-templates.compiledCache = null
+      cb noErr, compiledTemplates, sourceTemplates
 
-# When `reload` is true, *all* templates are re-read from disk then
-# re-compiled every time render is called. You only ever want this behavior
-# during development. And even then, it's an optimization over just restarting
-# the entire server process.
-templates.reload = process.env.NODE_ENV is 'development'
+  return { render, source }
+
 
 # Given a directory, glob filter, and function to convert a pathname into a
 # template name, calls the callback with a hashmap of template names and
@@ -148,10 +149,10 @@ readAndCompileTemplates = (dir, globFilter, nameFromFilenameFn, cb) ->
 noErr = null
 
 basenameWithoutExtension = (fileName) ->
-  fileName.match(/// .+ / (.+) \. .+ \.mustache $ ///)[1]
+  fileName.match(/// .+ \/ (.+) \. .+ \.mustache $ ///)[1]
 
 modulePrefixedBasenameWithoutExtension = (fileName) ->
-  [moduleName, templateName] = fileName.match(/// .+ / (.+) / (.+) \. .+ \.mustache $ ///)[1..2]
+  [moduleName, templateName] = fileName.match(/// .+ \/ (.+) \/ (.+) \. .+ \.mustache $ ///)[1..2]
   if templateName is 'main' then moduleName else moduleName + '_' + templateName
 
 
@@ -178,7 +179,7 @@ if process.argv[1] is __filename
   fse.removeSync dir
   fse.mkdirSync dir
 
-  templates.dir = dir
+  templates = setup { baseDirectory: dir }
 
   sources =
     foo: "{{foo}}"
@@ -226,7 +227,7 @@ if process.argv[1] is __filename
     bazModuleDir = modulesDir + '/baz'
     fse.mkdirSync bazModuleDir
 
-    templates.modulesDir = modulesDir
+    templates = setup { baseDirectory: dir, modulesDirectory: modulesDir }
 
     bazModuleSources =
       main: "{{>baz_qux}}"
@@ -241,9 +242,6 @@ if process.argv[1] is __filename
     templates.render 'baz', {}, (err, html) ->
       assert.ifError err
       assert.equal "contents of baz_qux module template", html
-      assert.equal "contents of baz_qux module template", templates.sourceCache['baz_qux']
-      assert.equal "{{>baz_qux}}", templates.sourceCache['baz']
-
 
       console.log "ok"
       process.exit()

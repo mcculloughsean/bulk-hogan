@@ -1,17 +1,26 @@
-COFFEE = $(shell find "src" -name "*.coffee")
-JS = $(COFFEE:src%.coffee=lib%.js)
+SRC = $(shell find src -name "*.coffee" -type f | sort)
+LIB = $(SRC:src/%.coffee=lib/%.js)
 
-all: $(JS)
+COFFEE=node_modules/.bin/coffee
 
-lib/%.js : src/%.coffee
-	./node_modules/.bin/coffee \
-		--compile \
-		--lint \
-		--output lib $<
+.PHONY : all build clean test
+all: build
 
-test :
-	./node_modules/.bin/coffee src/bulk_hogan.coffee
+build: $(LIB)
 
+lib:
+	mkdir lib
+
+lib/%.js: src/%.coffee lib
+	dirname "$@" | xargs mkdir -p
+	$(COFFEE) --js <"$<" >"$@"
+
+clean :
+	rm -rf lib
+	rm -rf node_modules
+
+test:
+	${COFFEE} src/bulk_hogan.coffee
 # ---
 
 tag:
